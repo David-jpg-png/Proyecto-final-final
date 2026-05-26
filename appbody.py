@@ -1,5 +1,6 @@
 import pathlib
 import os
+import re
 import urllib.request
 
 try:
@@ -25,18 +26,65 @@ if not DATA_PATH.exists():
     DATA_PATH = BASE_DIR / "chicagocrimes.csv"
 
 
+def normalize_header(col_name: str) -> str:
+    cleaned = col_name.strip().lower().replace("\ufeff", "")
+    cleaned = re.sub(r"[\s\-]+", "_", cleaned)
+    cleaned = re.sub(r"[^0-9a-zA-Z_]+", "", cleaned)
+    return cleaned
+
+
+def find_column(columns, options):
+    normalized = {normalize_header(c): c for c in columns}
+    for option in options:
+        option_norm = normalize_header(option)
+        if option_norm in normalized:
+            return normalized[option_norm]
+    return None
+
+
 @st.cache_data(show_spinner=False)
 def load_and_clean_data(csv_path):
-    df = pd.read_csv(csv_path, dtype=str, low_memory=False, header=0)
-    df.columns = df.columns.str.strip()
+    df = pd.read_csv(csv_path, dtype=str, low_memory=False, header=0, encoding="utf-8-sig")
+    original_columns = list(df.columns)
+    df.columns = [normalize_header(c) for c in df.columns]
     df = df.drop_duplicates().copy()
 
-    if "Date" not in df.columns:
+    column_map = {
+        "Date": ["date", "fecha", "incident_date", "reported_date"],
+        "ID": ["id", "case_id", "record_id"],
+        "Case Number": ["case number", "case_number", "casenumber", "caseid"],
+        "Location Description": ["location description", "location_description", "location", "locationdesc"],
+        "Primary Type": ["primary type", "primary_type", "primarytype", "type"],
+        "Description": ["description", "desc"],
+        "Arrest": ["arrest", "arrested"],
+        "Domestic": ["domestic", "is_domestic"],
+        "X Coordinate": ["x coordinate", "x_coordinate", "xcoord"],
+        "Y Coordinate": ["y coordinate", "y_coordinate", "ycoord"],
+        "Latitude": ["latitude", "lat"],
+        "Longitude": ["longitude", "lon", "lng"],
+        "Ward": ["ward"],
+        "Community Area": ["community area", "community_area", "communityarea"],
+        "District": ["district"],
+        "FBI Code": ["fbi code", "fbi_code", "fbicode"],
+    }
+
+    rename_map = {}
+    found = {}
+    for canonical, options in column_map.items():
+        actual = find_column(original_columns, options)
+        if actual:
+            rename_map[normalize_header(actual)] = canonical
+            found[canonical] = actual
+
+    if "Date" not in found:
         raise ValueError(
-            f"Expected column 'Date' not found in {csv_path}. "
-            f"Found columns: {list(df.columns)}. "
-            "Please ensure the CSV file has a header row with the expected column names."
+            f"Expected column 'Date' not found in {csv_path}.\n"
+            f"Original columns: {original_columns}\n"
+            f"Normalized columns: {list(df.columns)}\n"
+            "Please verify the uploaded CSV header contains a date column named 'Date', 'date', or equivalent."
         )
+
+    df = df.rename(columns=rename_map)
 
     # Date parsing and time features
     df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
