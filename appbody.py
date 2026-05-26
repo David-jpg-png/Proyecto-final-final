@@ -26,6 +26,28 @@ if not DATA_PATH.exists():
     DATA_PATH = BASE_DIR / "chicagocrimes.csv"
 
 
+def create_fallback_dataset():
+    """Create a minimal demo dataset when CSV loading fails."""
+    return pd.DataFrame({
+        "Date": pd.date_range("2021-01-01", periods=100, freq="D"),
+        "ID": [str(i) for i in range(1, 101)],
+        "Case Number": [f"CA{i:04d}" for i in range(1, 101)],
+        "Location Description": ["STREET"] * 50 + ["RESIDENCE"] * 30 + ["OTHER"] * 20,
+        "Primary Type": ["THEFT"] * 40 + ["ROBBERY"] * 30 + ["BURGLARY"] * 30,
+        "Description": ["OVER $500"] * 100,
+        "Arrest": np.random.choice([True, False], 100, p=[0.3, 0.7]),
+        "Domestic": np.random.choice([True, False], 100, p=[0.2, 0.8]),
+        "X Coordinate": np.random.uniform(1168000, 1180000, 100),
+        "Y Coordinate": np.random.uniform(1895000, 1910000, 100),
+        "Latitude": np.random.uniform(41.8, 42.0, 100),
+        "Longitude": np.random.uniform(-87.7, -87.5, 100),
+        "Ward": np.random.randint(1, 51, 100).astype(str),
+        "Community Area": np.random.randint(1, 78, 100).astype(str),
+        "District": np.random.randint(1, 30, 100).astype(str),
+        "FBI Code": ["06"] * 100,
+    })
+
+
 def normalize_header(col_name: str) -> str:
     cleaned = col_name.strip().lower().replace("\ufeff", "")
     cleaned = re.sub(r"[\s\-]+", "_", cleaned)
@@ -44,75 +66,84 @@ def find_column(columns, options):
 
 @st.cache_data(show_spinner=False)
 def load_and_clean_data(csv_path):
-    df = pd.read_csv(csv_path, dtype=str, low_memory=False, header=0, encoding="utf-8-sig")
-    original_columns = list(df.columns)
-    df.columns = [normalize_header(c) for c in df.columns]
-    df = df.drop_duplicates().copy()
+    try:
+        df = pd.read_csv(csv_path, dtype=str, low_memory=False, header=0, encoding="utf-8-sig")
+        original_columns = list(df.columns)
+        df.columns = [normalize_header(c) for c in df.columns]
+        df = df.drop_duplicates().copy()
 
-    column_map = {
-        "Date": ["date", "fecha", "incident_date", "reported_date"],
-        "ID": ["id", "case_id", "record_id"],
-        "Case Number": ["case number", "case_number", "casenumber", "caseid"],
-        "Location Description": ["location description", "location_description", "location", "locationdesc"],
-        "Primary Type": ["primary type", "primary_type", "primarytype", "type"],
-        "Description": ["description", "desc"],
-        "Arrest": ["arrest", "arrested"],
-        "Domestic": ["domestic", "is_domestic"],
-        "X Coordinate": ["x coordinate", "x_coordinate", "xcoord"],
-        "Y Coordinate": ["y coordinate", "y_coordinate", "ycoord"],
-        "Latitude": ["latitude", "lat"],
-        "Longitude": ["longitude", "lon", "lng"],
-        "Ward": ["ward"],
-        "Community Area": ["community area", "community_area", "communityarea"],
-        "District": ["district"],
-        "FBI Code": ["fbi code", "fbi_code", "fbicode"],
-    }
+        column_map = {
+            "Date": ["date", "fecha", "incident_date", "reported_date"],
+            "ID": ["id", "case_id", "record_id"],
+            "Case Number": ["case number", "case_number", "casenumber", "caseid"],
+            "Location Description": ["location description", "location_description", "location", "locationdesc"],
+            "Primary Type": ["primary type", "primary_type", "primarytype", "type"],
+            "Description": ["description", "desc"],
+            "Arrest": ["arrest", "arrested"],
+            "Domestic": ["domestic", "is_domestic"],
+            "X Coordinate": ["x coordinate", "x_coordinate", "xcoord"],
+            "Y Coordinate": ["y coordinate", "y_coordinate", "ycoord"],
+            "Latitude": ["latitude", "lat"],
+            "Longitude": ["longitude", "lon", "lng"],
+            "Ward": ["ward"],
+            "Community Area": ["community area", "community_area", "communityarea"],
+            "District": ["district"],
+            "FBI Code": ["fbi code", "fbi_code", "fbicode"],
+        }
 
-    rename_map = {}
-    found = {}
-    for canonical, options in column_map.items():
-        actual = find_column(original_columns, options)
-        if actual:
-            rename_map[normalize_header(actual)] = canonical
-            found[canonical] = actual
+        rename_map = {}
+        found = {}
+        for canonical, options in column_map.items():
+            actual = find_column(original_columns, options)
+            if actual:
+                rename_map[normalize_header(actual)] = canonical
+                found[canonical] = actual
 
-    if "Date" not in found:
-        raise ValueError(
-            f"Expected column 'Date' not found in {csv_path}.\n"
-            f"Original columns: {original_columns}\n"
-            f"Normalized columns: {list(df.columns)}\n"
-            "Please verify the uploaded CSV header contains a date column named 'Date', 'date', or equivalent."
-        )
+        if "Date" not in found:
+            st.warning(
+                f"Date column not found in {csv_path}. Using demo dataset.\n"
+                f"Original columns: {original_columns}\n"
+                f"Normalized columns: {list(df.columns)}"
+            )
+            return create_fallback_dataset()
 
-    df = df.rename(columns=rename_map)
+        df = df.rename(columns=rename_map)
 
-    # Date parsing and time features
-    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
-    df = df.dropna(subset=["Date"]).copy()
-    df["Hour"] = df["Date"].dt.hour
-    df["Day_of_Week"] = df["Date"].dt.dayofweek
-    df["Month"] = df["Date"].dt.month
-    df["Year"] = df["Date"].dt.year
+        # Date parsing and time features
+        df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+        df = df.dropna(subset=["Date"]).copy()
+        
+        if len(df) == 0:
+            st.warning("No valid date records found in dataset. Using demo dataset.")
+            return create_fallback_dataset()
+        
+        df["Hour"] = df["Date"].dt.hour
+        df["Day_of_Week"] = df["Date"].dt.dayofweek
+        df["Month"] = df["Date"].dt.month
+        df["Year"] = df["Date"].dt.year
 
-    # Type conversions
-    df["ID"] = df["ID"].astype(str)
-    df["Case Number"] = df["Case Number"].astype(str)
-    df["Location Description"] = df["Location Description"].astype(str).fillna("UNKNOWN")
-    df["Primary Type"] = df["Primary Type"].astype(str).str.upper()
-    df["Description"] = df["Description"].astype(str).str.upper()
-    df["Arrest"] = df["Arrest"].astype(bool)
-    df["Domestic"] = df["Domestic"].astype(bool)
+        # Type conversions
+        df["ID"] = df["ID"].astype(str)
+        df["Case Number"] = df["Case Number"].astype(str)
+        df["Location Description"] = df["Location Description"].astype(str).fillna("UNKNOWN")
+        df["Primary Type"] = df["Primary Type"].astype(str).str.upper()
+        df["Description"] = df["Description"].astype(str).str.upper()
+        df["Arrest"] = df["Arrest"].astype(bool)
+        df["Domestic"] = df["Domestic"].astype(bool)
 
-    for coord in ["X Coordinate", "Y Coordinate", "Latitude", "Longitude"]:
-        if coord in df.columns:
-            df[coord] = pd.to_numeric(df[coord], errors="coerce")
-            df[coord] = df[coord].fillna(df[coord].median())
+        for coord in ["X Coordinate", "Y Coordinate", "Latitude", "Longitude"]:
+            if coord in df.columns:
+                df[coord] = pd.to_numeric(df[coord], errors="coerce")
+                df[coord] = df[coord].fillna(df[coord].median())
 
-    for col in ["Ward", "Community Area", "District", "FBI Code"]:
-        if col in df.columns:
-            df[col] = df[col].astype(str).fillna("UNKNOWN")
+        for col in ["Ward", "Community Area", "District", "FBI Code"]:
+            if col in df.columns:
+                df[col] = df[col].astype(str).fillna("UNKNOWN")
 
-    return df
+        return df
+    except Exception as e:
+        st.warning(f"Error loading CSV: {e}. Using demo dataset instead.")
+        return create_fallback_dataset()
 
 
 @st.cache_data(show_spinner=False)
