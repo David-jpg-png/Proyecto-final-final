@@ -38,7 +38,7 @@ def resolve_data_path():
 
 def create_fallback_dataset():
     """Create a minimal demo dataset when CSV loading fails."""
-    return pd.DataFrame({
+    df = pd.DataFrame({
         "Date": pd.date_range("2021-01-01", periods=100, freq="D"),
         "ID": [str(i) for i in range(1, 101)],
         "Case Number": [f"CA{i:04d}" for i in range(1, 101)],
@@ -56,6 +56,24 @@ def create_fallback_dataset():
         "District": np.random.randint(1, 30, 100).astype(str),
         "FBI Code": ["06"] * 100,
     })
+
+    # Ensure Date is datetime and add time-derived features expected by the model
+    df["Date"] = pd.to_datetime(df["Date"])
+    df["Hour"] = df["Date"].dt.hour
+    df["Day_of_Week"] = df["Date"].dt.dayofweek
+    df["Month"] = df["Date"].dt.month
+    df["Year"] = df["Date"].dt.year
+
+    # Ensure types align with downstream expectations
+    df["ID"] = df["ID"].astype(str)
+    df["Case Number"] = df["Case Number"].astype(str)
+    df["Location Description"] = df["Location Description"].astype(str)
+    df["Primary Type"] = df["Primary Type"].astype(str)
+    df["Description"] = df["Description"].astype(str)
+    df["Arrest"] = df["Arrest"].astype(bool)
+    df["Domestic"] = df["Domestic"].astype(bool)
+
+    return df
 
 
 def normalize_header(col_name: str) -> str:
