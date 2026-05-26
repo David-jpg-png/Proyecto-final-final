@@ -382,7 +382,17 @@ def main():
         feature_cols,
     )
 
-    probability = model.predict_proba(user_features)[0, 1]
+    try:
+        proba = model.predict_proba(user_features)
+        # Extract probability of positive class (Arrest=True)
+        if proba.ndim == 1:
+            probability = float(proba[1]) if len(proba) > 1 else float(proba[0])
+        else:
+            probability = float(proba[0, 1]) if proba.shape[1] > 1 else float(proba[0, 0])
+    except Exception as e:
+        st.error(f"Prediction error: {e}. Using default probability 0.5")
+        probability = 0.5
+    
     label = "Arrest likely" if probability >= 0.5 else "Arrest unlikely"
 
     st.subheader("Live Model Output")
