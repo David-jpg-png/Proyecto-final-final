@@ -18,7 +18,11 @@ except ImportError as error:
         "  python -m pip install streamlit pandas scikit-learn matplotlib"
     ) from error
 
-DATA_PATH = pathlib.Path(__file__).resolve().parent / "chicagocrimes.csv"
+BASE_DIR = pathlib.Path(__file__).resolve().parent
+# Prefer a small sample file for demos; fall back to the full dataset if present
+DATA_PATH = BASE_DIR / "chicagocrimes_sample.csv"
+if not DATA_PATH.exists():
+    DATA_PATH = BASE_DIR / "chicagocrimes.csv"
 
 
 @st.cache_data(show_spinner=False)
