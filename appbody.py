@@ -33,7 +33,7 @@ def resolve_data_path():
         return REMOTE_DATA_FILE
     if SAMPLE_DATA_FILE.exists():
         return SAMPLE_DATA_FILE
-    return REMOTE_DATA_FILE
+    return None
 
 
 def create_fallback_dataset():
@@ -306,17 +306,18 @@ def main():
 
     # Resolve the dataset path before any file checks
     data_path = resolve_data_path()
+    data_url = os.environ.get(DATA_URL_ENV)
 
     if REMOTE_DATA_FILE.exists():
         st.info("Using local dataset: chicagocrimes.csv")
     elif data_path == SAMPLE_DATA_FILE:
-        st.info("Using fallback sample dataset: chicagocrimes_sample.csv")
-    elif os.environ.get(DATA_URL_ENV):
-        st.info("Downloading dataset from STREAMLIT_DATA_URL...")
+        st.info("Using local sample dataset: chicagocrimes_sample.csv")
+    elif data_url:
+        st.info("STREAMLIT_DATA_URL is set; the app will download the dataset if needed.")
 
     # Guard: large datasets in the repo will cause Streamlit Cloud to fail cloning
     MAX_REPO_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
-    if data_path.exists() and data_path.stat().st_size > MAX_REPO_FILE_SIZE:
+    if data_path is not None and data_path.exists() and data_path.stat().st_size > MAX_REPO_FILE_SIZE:
         st.error(
             "The dataset file is too large for deploying from a Git repository.\n"
             "Streamlit cannot download repositories that include very large files.\n\n"
@@ -331,24 +332,98 @@ def main():
         )
         return
 
-    data_url = os.environ.get(DATA_URL_ENV)
-
-    if data_url and not data_path.exists():
+    if data_url and (data_path is None or not data_path.exists()):
         try:
             st.info("Downloading dataset from STREAMLIT_DATA_URL...")
-            urllib.request.urlretrieve(data_url, str(data_path))
+            urllib.request.urlretrieve(data_url, str(REMOTE_DATA_FILE))
             st.success("Downloaded dataset.")
+            data_path = REMOTE_DATA_FILE
         except Exception as e:
             st.error(f"Failed to download dataset from STREAMLIT_DATA_URL: {e}")
             return
 
-    if not data_path.exists():
-        st.error(
-            f"Dataset not found at {data_path}.\n"
-            "Place `chicagocrimes.csv` in the same folder as this app, or set the STREAMLIT_DATA_URL environment variable to a direct download URL.\n"
-            "If you want to use the smaller demo sample, add `chicagocrimes_sample.csv` to the repo."
-        )
-        return
+    if data_path is None or not data_path.exists():
+        if SAMPLE_DATA_FILE.exists():
+            st.warning(
+                "Local dataset not found. Falling back to the smaller sample dataset `chicagocrimes_sample.csv`."
+            )
+            data_path = SAMPLE_DATA_FILE
+        else:
+            st.warning(
+                "No dataset file found. Using built-in fallback demo dataset instead."
+            )
+            df = create_fallback_dataset()
+            model, scaler, feature_cols, metrics = train_crime_model(df)
+            sidebar = st.sidebar
+            sidebar.header("User Input / Incident Selection")
+
+            primary_type = sidebar.selectbox(
+                "Primary Crime Type",
+                df["Primary Type"].value_counts().index.tolist(),
+                index=0,
+            )
+            top_locations = df["Location Description"].value_counts().nlargest(30).index.tolist()
+            location_description = sidebar.selectbox("Location Description", top_locations, index=0)
+            district = sidebar.selectbox(
+                "District",
+                sorted(df["District"].astype(str).fillna("UNKNOWN").unique().tolist()),
+                index=0,
+            )
+            community_area = sidebar.selectbox(
+                "Community Area",
+                sorted(df["Community Area"].astype(str).fillna("UNKNOWN").unique().tolist()),
+                index=0,
+            )
+            domestic = sidebar.radio("Domestic Incident", [True, False], format_func=lambda x: "Yes" if x else "No")
+            month = sidebar.slider("Month", 1, 12, 6)
+            day_of_week = sidebar.selectbox(
+                "Day of Week",
+                ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+                index=0,
+            )
+            hour = sidebar.slider("Hour of Day", 0, 23, 18)
+
+            day_of_week_map = {
+                "Monday": 0,
+                "Tuesday": 1,
+                "Wednesday": 2,
+                "Thursday": 3,
+                "Friday": 4,
+                "Saturday": 5,
+                "Sunday": 6,
+            }
+
+            user_features = build_feature_row(
+                primary_type,
+                location_description,
+                district,
+                community_area,
+                domestic,
+                month,
+                day_of_week_map[day_of_week],
+                hour,
+                df,
+                scaler,
+                feature_cols,
+            )
+
+            try:
+                proba = model.predict_proba(user_features)
+                if proba.ndim == 1:
+                    probability = float(proba[1]) if len(proba) > 1 else float(proba[0])
+                else:
+                    probability = float(proba[0, 1]) if proba.shape[1] > 1 else float(proba[0, 0])
+            except Exception as e:
+                st.error(f"Prediction error: {e}. Using default probability 0.5")
+                probability = 0.5
+
+            label = "Arrest likely" if probability >= 0.5 else "Arrest unlikely"
+            st.subheader("Live Model Output")
+            col1, col2 = st.columns([1, 1])
+            col1.metric("Predicted Arrest Probability", f"{probability:.1%}", label)
+            col2.metric("Model accuracy",
+                        f"{metrics['score']:.2%}", f"Trained on {metrics['train_size']} rows")
+            return
 
     df = load_and_clean_data(data_path)
     model, scaler, feature_cols, metrics = train_crime_model(df)
