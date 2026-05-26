@@ -20,10 +20,20 @@ except ImportError as error:
     ) from error
 
 BASE_DIR = pathlib.Path(__file__).resolve().parent
-# Prefer a small sample file for demos; fall back to the full dataset if present
-DATA_PATH = BASE_DIR / "chicagocrimes_sample.csv"
-if not DATA_PATH.exists():
-    DATA_PATH = BASE_DIR / "chicagocrimes.csv"
+DATA_URL_ENV = "STREAMLIT_DATA_URL"
+REMOTE_DATA_FILE = BASE_DIR / "chicagocrimes.csv"
+SAMPLE_DATA_FILE = BASE_DIR / "chicagocrimes_sample.csv"
+
+
+def resolve_data_path():
+    data_url = os.environ.get(DATA_URL_ENV)
+    if data_url:
+        return REMOTE_DATA_FILE
+    if REMOTE_DATA_FILE.exists():
+        return REMOTE_DATA_FILE
+    if SAMPLE_DATA_FILE.exists():
+        return SAMPLE_DATA_FILE
+    return REMOTE_DATA_FILE
 
 
 def create_fallback_dataset():
@@ -311,22 +321,27 @@ def main():
         )
         return
 
-    # If dataset is missing on the runner, try downloading from an environment-provided URL
-    if not DATA_PATH.exists():
-        data_url = os.environ.get("STREAMLIT_DATA_URL")
-        if data_url:
-            try:
-                st.info("Downloading dataset from STREAMLIT_DATA_URL...")
-                urllib.request.urlretrieve(data_url, str(DATA_PATH))
-                st.success("Downloaded dataset.")
-            except Exception as e:
-                st.error(f"Failed to download dataset from STREAMLIT_DATA_URL: {e}")
-                return
-        else:
-            st.error(f"Dataset not found at {DATA_PATH}. Place `chicagocrimes.csv` in the same folder as this app, or set the STREAMLIT_DATA_URL environment variable to a direct download URL.")
+    data_path = resolve_data_path()
+    data_url = os.environ.get(DATA_URL_ENV)
+
+    if data_url and not data_path.exists():
+        try:
+            st.info("Downloading dataset from STREAMLIT_DATA_URL...")
+            urllib.request.urlretrieve(data_url, str(data_path))
+            st.success("Downloaded dataset.")
+        except Exception as e:
+            st.error(f"Failed to download dataset from STREAMLIT_DATA_URL: {e}")
             return
 
-    df = load_and_clean_data(DATA_PATH)
+    if not data_path.exists():
+        st.error(
+            f"Dataset not found at {data_path}.\n"
+            "Place `chicagocrimes.csv` in the same folder as this app, or set the STREAMLIT_DATA_URL environment variable to a direct download URL.\n"
+            "If you want to use the smaller demo sample, add `chicagocrimes_sample.csv` to the repo."
+        )
+        return
+
+    df = load_and_clean_data(data_path)
     model, scaler, feature_cols, metrics = train_crime_model(df)
 
     sidebar = st.sidebar
