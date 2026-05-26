@@ -95,6 +95,23 @@ def find_column(columns, options):
 @st.cache_data(show_spinner=False)
 def load_and_clean_data(csv_path):
     try:
+        # Quick check for Git LFS pointer files (these contain metadata, not the CSV)
+        try:
+            p = pathlib.Path(csv_path)
+            with p.open("r", encoding="utf-8", errors="replace") as fh:
+                first_lines = "".join([next(fh) for _ in range(5)])
+        except Exception:
+            first_lines = ""
+
+        if "version https://git-lfs.github.com/spec/v1" in first_lines or re.search(r"oid sha256:", first_lines):
+            st.warning(
+                "The dataset file appears to be a Git LFS pointer file (it doesn't contain the CSV data).\n"
+                "Please run `git lfs pull` in the repository, replace the file with the real CSV,\n"
+                "or set the `STREAMLIT_DATA_URL` environment variable to a direct CSV URL.\n"
+                "Using demo dataset instead."
+            )
+            return create_fallback_dataset()
+
         df = pd.read_csv(csv_path, dtype=str, low_memory=False, header=0, encoding="utf-8-sig")
         original_columns = list(df.columns)
         df.columns = [normalize_header(c) for c in df.columns]
