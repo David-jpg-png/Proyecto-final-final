@@ -27,8 +27,16 @@ if not DATA_PATH.exists():
 
 @st.cache_data(show_spinner=False)
 def load_and_clean_data(csv_path):
-    df = pd.read_csv(csv_path)
+    df = pd.read_csv(csv_path, dtype=str, low_memory=False, header=0)
+    df.columns = df.columns.str.strip()
     df = df.drop_duplicates().copy()
+
+    if "Date" not in df.columns:
+        raise ValueError(
+            f"Expected column 'Date' not found in {csv_path}. "
+            f"Found columns: {list(df.columns)}. "
+            "Please ensure the CSV file has a header row with the expected column names."
+        )
 
     # Date parsing and time features
     df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
