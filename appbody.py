@@ -307,6 +307,13 @@ def main():
     # Resolve the dataset path before any file checks
     data_path = resolve_data_path()
 
+    if REMOTE_DATA_FILE.exists():
+        st.info("Using local dataset: chicagocrimes.csv")
+    elif data_path == SAMPLE_DATA_FILE:
+        st.info("Using fallback sample dataset: chicagocrimes_sample.csv")
+    elif os.environ.get(DATA_URL_ENV):
+        st.info("Downloading dataset from STREAMLIT_DATA_URL...")
+
     # Guard: large datasets in the repo will cause Streamlit Cloud to fail cloning
     MAX_REPO_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
     if data_path.exists() and data_path.stat().st_size > MAX_REPO_FILE_SIZE:
