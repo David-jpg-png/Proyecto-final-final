@@ -1,4 +1,6 @@
 import pathlib
+import os
+import urllib.request
 
 try:
     import streamlit as st
@@ -201,9 +203,37 @@ def main():
         "Use the controls in the sidebar to select a crime incident profile, then see a live arrest probability prediction and supporting visualizations."
     )
 
-    if not DATA_PATH.exists():
-        st.error(f"Dataset not found at {DATA_PATH}. Place `chicagocrimes.csv` in the same folder as this app.")
+    # Guard: large datasets in the repo will cause Streamlit Cloud to fail cloning
+    MAX_REPO_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
+    if DATA_PATH.exists() and DATA_PATH.stat().st_size > MAX_REPO_FILE_SIZE:
+        st.error(
+            "The dataset file is too large for deploying from a Git repository.\n"
+            "Streamlit cannot download repositories that include very large files.\n\n"
+            "Remediation options:\n"
+            "1) Remove the large file from the git repository and push the change:\n"
+            "   git rm --cached chicagocrimes.csv\n"
+            "   echo chicagocrimes.csv >> .gitignore\n"
+            "   git commit -m \"Remove large dataset from repo\"\n"
+            "   git push origin main\n\n"
+            "2) Host the dataset externally (public URL) and set the environment variable `STREAMLIT_DATA_URL` to the direct download URL.\n"
+            "   The app will download the file at startup if the variable is present."
+        )
         return
+
+    # If dataset is missing on the runner, try downloading from an environment-provided URL
+    if not DATA_PATH.exists():
+        data_url = os.environ.get("STREAMLIT_DATA_URL")
+        if data_url:
+            try:
+                st.info("Downloading dataset from STREAMLIT_DATA_URL...")
+                urllib.request.urlretrieve(data_url, str(DATA_PATH))
+                st.success("Downloaded dataset.")
+            except Exception as e:
+                st.error(f"Failed to download dataset from STREAMLIT_DATA_URL: {e}")
+                return
+        else:
+            st.error(f"Dataset not found at {DATA_PATH}. Place `chicagocrimes.csv` in the same folder as this app, or set the STREAMLIT_DATA_URL environment variable to a direct download URL.")
+            return
 
     df = load_and_clean_data(DATA_PATH)
     model, scaler, feature_cols, metrics = train_crime_model(df)
