@@ -304,9 +304,12 @@ def main():
         "Use the controls in the sidebar to select a crime incident profile, then see a live arrest probability prediction and supporting visualizations."
     )
 
+    # Resolve the dataset path before any file checks
+    data_path = resolve_data_path()
+
     # Guard: large datasets in the repo will cause Streamlit Cloud to fail cloning
     MAX_REPO_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
-    if DATA_PATH.exists() and DATA_PATH.stat().st_size > MAX_REPO_FILE_SIZE:
+    if data_path.exists() and data_path.stat().st_size > MAX_REPO_FILE_SIZE:
         st.error(
             "The dataset file is too large for deploying from a Git repository.\n"
             "Streamlit cannot download repositories that include very large files.\n\n"
@@ -321,7 +324,6 @@ def main():
         )
         return
 
-    data_path = resolve_data_path()
     data_url = os.environ.get(DATA_URL_ENV)
 
     if data_url and not data_path.exists():
