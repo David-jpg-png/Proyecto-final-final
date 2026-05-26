@@ -425,7 +425,9 @@ def main():
 
     st.markdown("---")
     with st.expander("Dataset sample and dashboard data summary"):
-        st.write(df.sample(5, random_state=42))
+        sample_size = min(5, len(df))
+        if sample_size > 0:
+            st.write(df.sample(n=sample_size, random_state=42) if sample_size == 5 else df.head(sample_size))
         st.write("### Arrest distribution")
         st.write(df["Arrest"].value_counts(normalize=True).rename("rate"))
         st.write("### Top 8 Primary Crime Types")
