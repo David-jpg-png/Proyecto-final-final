@@ -22,6 +22,7 @@ except ImportError as error:
 BASE_DIR = pathlib.Path(__file__).resolve().parent
 DATA_URL_ENV = "STREAMLIT_DATA_URL"
 REMOTE_DATA_FILE = BASE_DIR / "chicagocrimes.csv"
+SAMPLE_DATA_FILE = BASE_DIR / "chicagocrimes_sample.csv"
 
 
 def resolve_data_path():
@@ -31,6 +32,9 @@ def resolve_data_path():
     # Prefer chicagocrimes.csv if it exists
     if REMOTE_DATA_FILE.exists():
         return REMOTE_DATA_FILE
+    # Fall back to a tracked sample dataset if available
+    if SAMPLE_DATA_FILE.exists():
+        return SAMPLE_DATA_FILE
     return None
 
 
@@ -350,133 +354,7 @@ def build_charts(df, selected_type, selected_location):
     return fig
 
 
-def main():
-    st.set_page_config(
-        page_title="Chicago Crime Arrest Predictor",
-        layout="wide",
-    )
-
-    st.title("Chicago Crime Arrest Prediction Dashboard")
-    st.write(
-        "Use the controls in the sidebar to select a crime incident profile, then see a live arrest probability prediction and supporting visualizations."
-    )
-
-    # Resolve the dataset path before any file checks
-    data_path = resolve_data_path()
-    data_url = os.environ.get(DATA_URL_ENV)
-
-    if data_path == REMOTE_DATA_FILE:
-        st.info("Using local dataset: chicagocrimes.csv")
-    elif data_url:
-        st.info("STREAMLIT_DATA_URL is set; the app will download the dataset if needed.")
-
-    # Guard: large datasets in the repo will cause Streamlit Cloud to fail cloning
-    MAX_REPO_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
-    if data_path is not None and data_path.exists() and data_path.stat().st_size > MAX_REPO_FILE_SIZE:
-        st.error(
-            "The dataset file is too large for deploying from a Git repository.\n"
-            "Streamlit cannot download repositories that include very large files.\n\n"
-            "Remediation options:\n"
-            "1) Remove the large file from the git repository and push the change:\n"
-            "   git rm --cached chicagocrimes.csv\n"
-            "   echo chicagocrimes.csv >> .gitignore\n"
-            "   git commit -m \"Remove large dataset from repo\"\n"
-            "   git push origin main\n\n"
-            "2) Host the dataset externally (public URL) and set the environment variable `STREAMLIT_DATA_URL` to the direct download URL.\n"
-            "   The app will download the file at startup if the variable is present."
-        )
-        return
-
-    if data_url and (data_path is None or not data_path.exists()):
-        try:
-            st.info("Downloading dataset from STREAMLIT_DATA_URL...")
-            urllib.request.urlretrieve(data_url, str(REMOTE_DATA_FILE))
-            st.success("Downloaded dataset.")
-            data_path = REMOTE_DATA_FILE
-        except Exception as e:
-            st.error(f"Failed to download dataset from STREAMLIT_DATA_URL: {e}")
-            return
-
-    if data_path is None or not data_path.exists():
-        st.warning(
-            "No dataset file found. Using built-in fallback demo dataset instead."
-        )
-        df = create_fallback_dataset()
-            model, scaler, feature_cols, metrics = train_crime_model(df)
-            sidebar = st.sidebar
-            sidebar.header("User Input / Incident Selection")
-
-            primary_type = sidebar.selectbox(
-                "Primary Crime Type",
-                df["Primary Type"].value_counts().index.tolist(),
-                index=0,
-            )
-            top_locations = df["Location Description"].value_counts().nlargest(30).index.tolist()
-            location_description = sidebar.selectbox("Location Description", top_locations, index=0)
-            district = sidebar.selectbox(
-                "District",
-                sorted(df["District"].astype(str).fillna("UNKNOWN").unique().tolist()),
-                index=0,
-            )
-            community_area = sidebar.selectbox(
-                "Community Area",
-                sorted(df["Community Area"].astype(str).fillna("UNKNOWN").unique().tolist()),
-                index=0,
-            )
-            domestic = sidebar.radio("Domestic Incident", [True, False], format_func=lambda x: "Yes" if x else "No")
-            month = sidebar.slider("Month", 1, 12, 6)
-            day_of_week = sidebar.selectbox(
-                "Day of Week",
-                ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
-                index=0,
-            )
-            hour = sidebar.slider("Hour of Day", 0, 23, 18)
-
-            day_of_week_map = {
-                "Monday": 0,
-                "Tuesday": 1,
-                "Wednesday": 2,
-                "Thursday": 3,
-                "Friday": 4,
-                "Saturday": 5,
-                "Sunday": 6,
-            }
-
-            user_features = build_feature_row(
-                primary_type,
-                location_description,
-                district,
-                community_area,
-                domestic,
-                month,
-                day_of_week_map[day_of_week],
-                hour,
-                df,
-                scaler,
-                feature_cols,
-            )
-
-            try:
-                proba = model.predict_proba(user_features)
-                if proba.ndim == 1:
-                    probability = float(proba[1]) if len(proba) > 1 else float(proba[0])
-                else:
-                    probability = float(proba[0, 1]) if proba.shape[1] > 1 else float(proba[0, 0])
-            except Exception as e:
-                st.error(f"Prediction error: {e}. Using default probability 0.5")
-                probability = 0.5
-
-            label = "Arrest likely" if probability >= 0.5 else "Arrest unlikely"
-            st.subheader("Live Model Output")
-            col1, col2 = st.columns([1, 1])
-            col1.metric("Predicted Arrest Probability", f"{probability:.1%}", label)
-            col2.metric("Model accuracy",
-                        f"{metrics['score']:.2%}", f"Trained on {metrics['train_size']} rows")
-            return
-
-    df = load_and_clean_data(data_path)
-    model, scaler, feature_cols, metrics = train_crime_model(df)
-
+def render_dashboard(df, model, scaler, feature_cols, metrics):
     sidebar = st.sidebar
     sidebar.header("User Input / Incident Selection")
 
@@ -532,7 +410,6 @@ def main():
 
     try:
         proba = model.predict_proba(user_features)
-        # Extract probability of positive class (Arrest=True)
         if proba.ndim == 1:
             probability = float(proba[1]) if len(proba) > 1 else float(proba[0])
         else:
@@ -540,14 +417,13 @@ def main():
     except Exception as e:
         st.error(f"Prediction error: {e}. Using default probability 0.5")
         probability = 0.5
-    
+
     label = "Arrest likely" if probability >= 0.5 else "Arrest unlikely"
 
     st.subheader("Live Model Output")
     col1, col2 = st.columns([1, 1])
     col1.metric("Predicted Arrest Probability", f"{probability:.1%}", label)
-    col2.metric("Model accuracy",
-                f"{metrics['score']:.2%}", f"Trained on {metrics['train_size']} rows")
+    col2.metric("Model accuracy", f"{metrics['score']:.2%}", f"Trained on {metrics['train_size']} rows")
 
     st.markdown("---")
     st.subheader("Prediction Details")
@@ -586,6 +462,65 @@ def main():
     st.sidebar.write(f"Train set size: {metrics['train_size']}")
     st.sidebar.write(f"Test set size: {metrics['test_size']}")
     st.sidebar.write(f"Validation accuracy: {metrics['score']:.2%}")
+
+
+def main():
+    st.set_page_config(
+        page_title="Chicago Crime Arrest Predictor",
+        layout="wide",
+    )
+
+    st.title("Chicago Crime Arrest Prediction Dashboard")
+    st.write(
+        "Use the controls in the sidebar to select a crime incident profile, then see a live arrest probability prediction and supporting visualizations."
+    )
+
+    data_path = resolve_data_path()
+    data_url = os.environ.get(DATA_URL_ENV)
+
+    if data_path == REMOTE_DATA_FILE:
+        st.info("Using local dataset: chicagocrimes.csv")
+    elif data_path == SAMPLE_DATA_FILE:
+        st.info("Using local sample dataset: chicagocrimes_sample.csv")
+    elif data_url:
+        st.info("STREAMLIT_DATA_URL is set; the app will download the dataset if needed.")
+
+    MAX_REPO_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
+    if data_path == REMOTE_DATA_FILE and data_path.exists() and data_path.stat().st_size > MAX_REPO_FILE_SIZE:
+        st.error(
+            "The dataset file is too large for deploying from a Git repository.\n"
+            "Streamlit cannot download repositories that include very large files.\n\n"
+            "Remediation options:\n"
+            "1) Remove the large file from the git repository and push the change:\n"
+            "   git rm --cached chicagocrimes.csv\n"
+            "   echo chicagocrimes.csv >> .gitignore\n"
+            "   git commit -m \"Remove large dataset from repo\"\n"
+            "   git push origin main\n\n"
+            "2) Host the dataset externally (public URL) and set the environment variable `STREAMLIT_DATA_URL` to the direct download URL.\n"
+            "   The app will download the file at startup if the variable is present."
+        )
+        return
+
+    if data_url and (data_path is None or not data_path.exists()):
+        try:
+            st.info("Downloading dataset from STREAMLIT_DATA_URL...")
+            urllib.request.urlretrieve(data_url, str(REMOTE_DATA_FILE))
+            st.success("Downloaded dataset.")
+            data_path = REMOTE_DATA_FILE
+        except Exception as e:
+            st.error(f"Failed to download dataset from STREAMLIT_DATA_URL: {e}")
+            return
+
+    if data_path is None or not data_path.exists():
+        st.warning(
+            "No dataset file found. Using built-in fallback demo dataset instead."
+        )
+        df = create_fallback_dataset()
+    else:
+        df = load_and_clean_data(data_path)
+
+    model, scaler, feature_cols, metrics = train_crime_model(df)
+    render_dashboard(df, model, scaler, feature_cols, metrics)
 
 
 if __name__ == "__main__":
