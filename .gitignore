@@ -1,1 +1,2 @@
-﻿
+﻿# Keep the local dataset out of the repo for Streamlit deployment
+chicagocrimes.csv
