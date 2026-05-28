@@ -22,7 +22,6 @@ except ImportError as error:
 BASE_DIR = pathlib.Path(__file__).resolve().parent
 DATA_URL_ENV = "STREAMLIT_DATA_URL"
 REMOTE_DATA_FILE = BASE_DIR / "chicagocrimes.csv"
-SAMPLE_DATA_FILE = BASE_DIR / "chicagocrimes_sample.csv"
 
 
 def resolve_data_path():
@@ -32,9 +31,6 @@ def resolve_data_path():
     # Prefer chicagocrimes.csv if it exists
     if REMOTE_DATA_FILE.exists():
         return REMOTE_DATA_FILE
-    # Fall back to sample if main file not available
-    if SAMPLE_DATA_FILE.exists():
-        return SAMPLE_DATA_FILE
     return None
 
 
@@ -371,8 +367,6 @@ def main():
 
     if data_path == REMOTE_DATA_FILE:
         st.info("Using local dataset: chicagocrimes.csv")
-    elif data_path == SAMPLE_DATA_FILE:
-        st.info("Using local sample dataset: chicagocrimes_sample.csv")
     elif data_url:
         st.info("STREAMLIT_DATA_URL is set; the app will download the dataset if needed.")
 
@@ -404,16 +398,10 @@ def main():
             return
 
     if data_path is None or not data_path.exists():
-        if SAMPLE_DATA_FILE.exists():
-            st.warning(
-                "Local dataset not found. Falling back to the smaller sample dataset `chicagocrimes_sample.csv`."
-            )
-            data_path = SAMPLE_DATA_FILE
-        else:
-            st.warning(
-                "No dataset file found. Using built-in fallback demo dataset instead."
-            )
-            df = create_fallback_dataset()
+        st.warning(
+            "No dataset file found. Using built-in fallback demo dataset instead."
+        )
+        df = create_fallback_dataset()
             model, scaler, feature_cols, metrics = train_crime_model(df)
             sidebar = st.sidebar
             sidebar.header("User Input / Incident Selection")
