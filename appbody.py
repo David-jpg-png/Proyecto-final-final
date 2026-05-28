@@ -23,6 +23,7 @@ BASE_DIR = pathlib.Path(__file__).resolve().parent
 DATA_URL_ENV = "STREAMLIT_DATA_URL"
 REMOTE_DATA_FILE = BASE_DIR / "chicagocrimes.csv"
 SAMPLE_DATA_FILE = BASE_DIR / "chicagocrimes_sample.csv"
+REPLACEMENT_DATA_FILE = BASE_DIR / "chicagocrimes_replacement.csv"
 
 
 def resolve_data_path():
@@ -31,6 +32,9 @@ def resolve_data_path():
         return REMOTE_DATA_FILE
     if REMOTE_DATA_FILE.exists():
         return REMOTE_DATA_FILE
+    # Prefer an intentionally provided replacement CSV if present
+    if REPLACEMENT_DATA_FILE.exists():
+        return REPLACEMENT_DATA_FILE
     if SAMPLE_DATA_FILE.exists():
         return SAMPLE_DATA_FILE
     return None
@@ -369,6 +373,8 @@ def main():
 
     if REMOTE_DATA_FILE.exists():
         st.info("Using local dataset: chicagocrimes.csv")
+    elif data_path == REPLACEMENT_DATA_FILE:
+        st.info("Using local replacement dataset: chicagocrimes_replacement.csv")
     elif data_path == SAMPLE_DATA_FILE:
         st.info("Using local sample dataset: chicagocrimes_sample.csv")
     elif data_url:
